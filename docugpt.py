@@ -1,22 +1,19 @@
-import streamlit as st
-
-from typing import List, Dict, Any
-from langchain_openai import ChatOpenAI
-from langchain_community.vectorstores import FAISS 
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import LLMResult
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+from langchain.prompts import ChatPromptTemplate
+from langchain.document_loaders import UnstructuredFileLoader
+from langchain.embeddings import CacheBackedEmbeddings, OpenAIEmbeddings
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 from langchain.storage import LocalFileStore
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.document_loaders import UnstructuredFileLoader
-from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
-
+from langchain.vectorstores.faiss import FAISS
+from langchain.chat_models import ChatOpenAI
+from langchain.callbacks.base import BaseCallbackHandler
+import streamlit as st
 
 st.set_page_config(
     page_title="DocumentGPT",
     page_icon="📃",
 )
+
 
 class ChatCallbackHandler(BaseCallbackHandler):
     message = ""
@@ -32,14 +29,14 @@ class ChatCallbackHandler(BaseCallbackHandler):
         self.message_box.markdown(self.message)
 
 
-
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.5,
-    max_tokens=200,
+    temperature=0.1,
     streaming=True,
-    callbacks=[ChatCallbackHandler()],
+    callbacks=[
+        ChatCallbackHandler(),
+    ],
 )
+
 
 @st.cache_data(show_spinner="Embedding file...")
 def embed_file(file):
@@ -49,17 +46,18 @@ def embed_file(file):
         f.write(file_content)
     cache_dir = LocalFileStore(f"./.cache/embeddings/{file.name}")
     splitter = CharacterTextSplitter.from_tiktoken_encoder(
-        model_name="gpt-4o-mini",
-        chunk_size=1000,
+        separator="\n",
+        chunk_size=600,
         chunk_overlap=100,
     )
     loader = UnstructuredFileLoader(file_path)
     docs = loader.load_and_split(text_splitter=splitter)
-    embeddings = OpenAIEmbeddings(model="gpt-4o-mini")
-    cached_embeddings = CacheBackedEmbeddings(embeddings, cache_dir)
+    embeddings = OpenAIEmbeddings()
+    cached_embeddings = CacheBackedEmbeddings.from_bytes_store(embeddings, cache_dir)
     vectorstore = FAISS.from_documents(docs, cached_embeddings)
     retriever = vectorstore.as_retriever()
     return retriever
+
 
 def save_message(message, role):
     st.session_state["messages"].append({"message": message, "role": role})
@@ -70,6 +68,7 @@ def send_message(message, role, save=True):
         st.markdown(message)
     if save:
         save_message(message, role)
+
 
 def paint_history():
     for message in st.session_state["messages"]:
@@ -98,8 +97,6 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-
-        
 
 st.title("DocumentGPT")
 
@@ -140,4 +137,3 @@ if file:
 
 else:
     st.session_state["messages"] = []
-
